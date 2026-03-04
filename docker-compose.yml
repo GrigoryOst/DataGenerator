@@ -1,0 +1,95 @@
+name: bigdata_stack
+
+# Раздел, описывающий сервисы (контейнеры)
+services:
+  # Сервис NameNode - главный узел HDFS (хранит метаданные файловой системы)
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    # Проброс портов из контейнера на хост-машину:
+    ports:
+      - "9870:9870"  # Веб-интерфейс HDFS (NameNode UI) → http://localhost:9870
+      - "9000:9000"  # Основной порт для взаимодействия с HDFS (RPC) – клиенты подключаются сюда
+      - "8088:8088"  # Веб-интерфейс ResourceManager (YARN) – если используется YARN
+    # Переменные окружения внутри контейнера
+    environment:
+      - CLUSTER_NAME=test  # Имя кластера Hadoop (используется в конфигурации)
+    # Монтирование тома для хранения метаданных NameNode (сохраняются при перезапуске)
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+    networks:
+      - net
+
+  # Сервис DataNode - рабочий узел HDFS (хранит реальные данные)
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    # Зависимость от NameNode: DataNode запустится после NameNode 
+    depends_on:
+      - namenode
+    # Переменные окружения
+    environment:
+      # Проверка доступности NameNode перед запуском: ждём порт 9870 на контейнере "namenode"
+      - SERVICE_PRECONDITION=namenode:9870
+      # Указываем DataNode, какой NameNode использовать (внутренний адрес hdfs://namenode:8020)
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
+    # Том для хранения данных (блоков) на диске
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    networks:
+      - net
+
+  # Сервис Kafka – брокер сообщений (работает в режиме KRaft без Zookeeper)
+  kafka:
+    # Официальный образ Kafka от Confluent (последняя версия)
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    # Проброс порта для клиентских подключений
+    ports:
+      - "9092:9092"  # Основной порт Kafka (клиенты подключаются сюда с хоста)
+    # Переменные окружения для настройки Kafka
+    environment:
+      # --- Режим KRaft (без Zookeeper) ---
+      # Роли, которые выполняет этот процесс: и брокер, и контроллер
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      # Уникальный идентификатор узла в кластере
+      KAFKA_NODE_ID: 1
+      # Список контроллеров для кворума: 1@kafka:9093 (узел 1 доступен по имени "kafka" на порту 9093)
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      # Имя слушателя для общения между контроллерами
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+
+      # --- Настройки слушателей (listeners) ---
+      # Интерфейсы и порты, на которых Kafka принимает соединения:
+      # PLAINTEXT://0.0.0.0:9092 – для клиентских подключений
+      # CONTROLLER://0.0.0.0:9093 – для общения контроллеров
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      # Адрес, который Kafka сообщает клиентам (важно для подключения с хоста)
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
+      # Сопоставление имён слушателей с протоколами безопасности (PLAINTEXT – без шифрования)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      # Имя слушателя для общения между брокерами
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+
+      # --- Настройки для одноброкерного кластера ---
+      # Фактор репликации для внутреннего топика __consumer_offsets (должен быть 1 при одном брокере)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # Уникальный идентификатор кластера KRaft (генерируется один раз)
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+
+      # --- Дополнительные настройки для стабильности ---
+      # Время хранения сообщений (168 часов = 7 дней)
+      KAFKA_LOG_RETENTION_HOURS: 168
+      # Количество партиций по умолчанию для автоматически создаваемых топиков
+      KAFKA_NUM_PARTITIONS: 1
+    networks:
+      - net
+
+# Именованные тома для сохранения данных HDFS между перезапусками
+volumes:
+  hadoop_namenode:   # том для метаданных NameNode
+  hadoop_datanode:   # том для данных DataNode
+
+networks:
+  net:
+    driver: bridge  # используем стандартный сетевой драйвер bridge (контейнеры могут общаться по именам)
