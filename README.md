@@ -11,7 +11,7 @@ DataGenerator (Spark) ────▶ Kafka (broker) ────▶ DataTransfo
 
 1. DataGenerator – Spark-приложение, генерирующее поток случайных показаний (sensorId, temperature, timestamp) и отправляющее их в Kafka;
 2. Kafka – брокер сообщений, хранит входящий поток (топик sensor-data);
-3. DataTransformer – Spark Structured Streaming читает из Kafka, парсит данные, округляет температуру и сохраняет результат (по умолчанию в локальную ФС, опционально в HDFS);
+3. DataTransformer – Spark Structured Streaming читает из Kafka, парсит данные, округляет температуру и сохраняет результат (по умолчанию в локальную ФС);
 4. HDFS – распределённое хранилище для долгосрочного хранения обработанных данных.
 
 Cтек:  
